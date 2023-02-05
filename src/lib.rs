@@ -37,6 +37,7 @@ pub mod vector {
     pub trait VectorSpace {
         type Scalar;
         type Vector;
+        type Matrix;
     }
 
     pub trait VAdd {
@@ -62,6 +63,7 @@ pub mod vector {
     }
 }
 
+use matrix_ops::*;
 use vector::*;
 
 macro_rules! vector_space_inner {
@@ -111,6 +113,33 @@ macro_rules! vector_space_inner {
             }
         }
     };
+
+    (@MAddMut $space:ident) => {
+        impl MAddMut for $space {
+            type Matrix = <$space as VectorSpace>::Matrix;
+            fn madd_mut(&self, lhs: &mut Self::Matrix, rhs: &Self::Matrix) {
+                use std::ops::AddAssign;
+                lhs.0.iter_mut().zip(rhs.0).for_each(|(l_row, r_row)| {
+                    l_row
+                        .0
+                        .iter_mut()
+                        .zip(r_row.0)
+                        .for_each(|(l, r)| l.add_assign(r))
+                })
+            }
+        }
+    };
+
+    (@MAdd $space:ident) => {
+        impl MAdd for $space {
+            type Matrix = <$space as VectorSpace>::Matrix;
+            fn madd(&self, lhs: &Self::Matrix, rhs: &Self::Matrix) -> Self::Matrix {
+                let mut temp = *lhs;
+                self.madd_mut(&mut temp, &rhs);
+                temp
+            }
+        }
+    };
 }
 
 macro_rules! vector_space_expand {
@@ -122,17 +151,20 @@ macro_rules! vector_space_expand {
 }
 
 macro_rules! vector_space {
-    ($space:ident, $vector:ident, $scalar:ty) => {
+    ($space:ident, $matrix:ident, $vector:ident, $scalar:ty) => {
         pub struct $space;
         impl VectorSpace for $space {
             type Scalar = $scalar;
             type Vector = $vector<$scalar>;
+            type Matrix = $matrix<$scalar>;
         }
         vector_space_expand! {
             VScaleMut, $space,
             VScale, $space,
             VAddMut, $space,
-            VAdd, $space
+            VAdd, $space,
+            MAddMut, $space,
+            MAdd, $space
         }
     };
 }
@@ -158,37 +190,12 @@ pub mod matrix_ops {
     }
 }
 
-pub use matrix_ops::*;
-
-impl MAdd for ThreeDimSpaceV2 {
-    type Matrix = Matrix3X3<u32>;
-    fn madd(&self, lhs: &Self::Matrix, rhs: &Self::Matrix) -> Self::Matrix {
-        let mut temp = *lhs;
-        self.madd_mut(&mut temp, &rhs);
-        temp
-    }
-}
-
-impl MAddMut for ThreeDimSpaceV2 {
-    type Matrix = Matrix3X3<u32>;
-    fn madd_mut(&self, lhs: &mut Self::Matrix, rhs: &Self::Matrix) {
-        use std::ops::AddAssign;
-        lhs.0.iter_mut().zip(rhs.0).for_each(|(l_row, r_row)| {
-            l_row
-                .0
-                .iter_mut()
-                .zip(r_row.0)
-                .for_each(|(l, r)| l.add_assign(r))
-        })
-    }
-}
-
 matrix! {
     Matrix3X3<T>([Vector3<T>; 3])
 }
 
 vector_space! {
-    ThreeDimSpaceV2, Vector3, u32
+    ThreeDimSpaceV2, Matrix3X3, Vector3, u32
 }
 
 mod vec_tests {
@@ -207,14 +214,19 @@ mod vec_tests {
 
     #[test]
     fn four_dim_space() {
+        use crate::matrix_ops::*;
         use crate::vector::*;
         // define Vector4
         vector! {
             Vector4<T>([T; 4]);
         }
+
+        matrix! {
+            Matrix4<T>([Vector4<T>; 4])
+        }
         // define 4D space and operations
         vector_space! {
-            FourDimSpace, Vector4, u32
+            FourDimSpace, Matrix4, Vector4, u32
         }
 
         let space = FourDimSpace;
@@ -243,7 +255,6 @@ mod vec_tests {
             Vector3([19, 36, 69]),
             Vector3([134, 263, 520]),
         ]);
-        println!("{:?}", result);
         assert_eq!(result, expected);
     }
 }
